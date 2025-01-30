@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/bergmannf/rpgreminder/nextcloud"
 	"github.com/bergmannf/rpgreminder/telegram"
@@ -64,9 +65,23 @@ func main() {
 			return
 		}
 		weekend := nextcloud.NextWeekend(opts)
+		msgs := []string{}
 		for _, opt := range weekend {
-			log.Print(opt.Id, " on: ", opt.Datetime(), " - ", opt.Datetime().Weekday(), " YES: ", opt.Votes.Yes, " MAYBE: ", opt.Votes.Maybe, " NO: ", opt.Votes.No)
+			timeVotes := opt.Votes.Yes + opt.Votes.Maybe
+			allVotes := opt.Votes.Yes + opt.Votes.Maybe + opt.Votes.No
+			percent := (float32(timeVotes) / float32(allVotes)) * 100
+			msg := fmt.Sprintf(`%s (%s): %d (YES) %d (MAYBE) %d (NO): %.0f%%`,
+				opt.Datetime().Weekday(),
+				opt.Datetime().Format("02/01"),
+				opt.Votes.Yes,
+				opt.Votes.Maybe,
+				opt.Votes.No,
+				percent,
+			)
+			log.Print(msg)
+			msgs = append(msgs, msg)
 		}
+		bot.Send(strings.Join(msgs, "\n"))
 	} else {
 		bot.Setup()
 	}

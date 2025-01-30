@@ -89,10 +89,18 @@ func (t *TelegramBot) Setup() {
 		options := nextcloud.NextWeekend(poll)
 		msgs := []string{}
 		for _, opt := range options {
-			log.Print("On: ", opt.Datetime(), " - ", opt.Datetime().Weekday(), " YES: ", opt.Votes.Yes, " MAYBE: ", opt.Votes.Maybe, " NO: ", opt.Votes.No)
 			timeVotes := opt.Votes.Yes + opt.Votes.Maybe
 			allVotes := opt.Votes.Yes + opt.Votes.Maybe + opt.Votes.No
-			msg := fmt.Sprintf("On %s (%s) %d of %d have time.", opt.Datetime().Weekday(), opt.Datetime(), timeVotes, allVotes)
+			percent := (float32(timeVotes) / float32(allVotes)) * 100
+			msg := fmt.Sprintf(`%s (%s): %d (YES) %d (MAYBE) %d (NO): %.0f%%`,
+				opt.Datetime().Weekday(),
+				opt.Datetime().Format("02/01"),
+				opt.Votes.Yes,
+				opt.Votes.Maybe,
+				opt.Votes.No,
+				percent,
+			)
+			log.Print(msg)
 			msgs = append(msgs, msg)
 		}
 		msg := strings.Join(msgs, "\n")
