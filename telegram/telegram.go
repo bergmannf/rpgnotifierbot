@@ -115,6 +115,7 @@ func (t *TelegramBot) Setup() {
 		t.Send("Unknown command, use /intro /schedule")
 	}, th.AnyCommand())
 
+	log.Print("Startup complete - awaiting orders.")
 	// Start handling updates
 	bh.Start()
 }
