@@ -1,6 +1,7 @@
 package nextcloud
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,6 +38,11 @@ type PollOptionVote struct {
 	Maybe       int    `json:"maybe"`
 	Count       int    `json:"count"`
 	CurrentUser string `json:"currentUser"`
+}
+
+type PollOptionCreate struct {
+	Timestamp int64 `json:"timestamp"`
+	Duration  int   `json:"duration"`
 }
 
 type PollUser struct {
@@ -91,9 +97,9 @@ func (n *Nextcloud) PollsUrl() string {
 	return n.Url("options")
 }
 
-func (n *Nextcloud) Get(url string) ([]byte, error) {
+func (n *Nextcloud) Request(url string, requestType string, requestBody []byte) ([]byte, error) {
 	client := http.DefaultClient
-	r, err := http.NewRequest("GET", url, nil)
+	r, err := http.NewRequest(requestType, url, bytes.NewBuffer([]byte(requestBody)))
 	if err != nil {
 		return nil, err
 	}
@@ -104,8 +110,13 @@ func (n *Nextcloud) Get(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Print("Retrieved URL: ", n.PollsUrl(), " Status Code: ", resp.StatusCode)
+	log.Print("Retrieved URL: ", url, " with ", requestType, " - Status Code: ", resp.StatusCode)
 	return body, err
+
+}
+
+func (n *Nextcloud) Get(url string) ([]byte, error) {
+	return n.Request(url, "GET", nil)
 }
 
 func (n *Nextcloud) Users() ([]PollUser, error) {
@@ -122,6 +133,40 @@ func (n *Nextcloud) Users() ([]PollUser, error) {
 		}
 	}
 	return users, nil
+}
+
+func (n *Nextcloud) DeleteOption(o *PollOption) error {
+	log.Print("Removing poll option: ", o.Id)
+	url := fmt.Sprintf("%s/%s/%d", n.Options.Server, "index.php/apps/polls/api/v1.0/option/", o.Id)
+	_, err := n.Request(url, "DELETE", nil)
+	if err != nil {
+		log.Fatal("Failed to delete option: ", o.Id)
+	}
+	return err
+}
+
+func (n *Nextcloud) CreateOption(o *PollOptionCreate) error {
+	log.Print("Creating new option: ", o)
+	byte, err := json.Marshal(o)
+	if err != nil {
+		log.Fatal("Could not marshal new option: ", err)
+	}
+	url := n.Url("option")
+	_, err = n.Request(url, "POST", byte)
+	if err != nil {
+		log.Fatal("Failed to post new option: ", err)
+	}
+	return nil
+}
+
+func (n *Nextcloud) DeleteOptions(options []PollOption) error {
+	for _, option := range options {
+		err := n.DeleteOption(&option)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (n *Nextcloud) LoadPoll() (*PollOptions, error) {
@@ -158,4 +203,67 @@ func NextWeekend(options *PollOptions) []PollOption {
 		}
 	}
 	return nextWeekend
+}
+
+// Create new vote options for Friday and Saturdays starting from the last
+// option in PollOptions
+func AddNewOptions(pollOptions *PollOptions, i int) []PollOptionCreate {
+	nextFriday := map[time.Weekday]int{
+		time.Saturday:  6,
+		time.Sunday:    5,
+		time.Monday:    4,
+		time.Tuesday:   3,
+		time.Wednesday: 2,
+		time.Thursday:  1,
+		time.Friday:    7,
+	}
+	nextSaturday := map[time.Weekday]int{
+		time.Saturday:  7,
+		time.Sunday:    6,
+		time.Monday:    5,
+		time.Tuesday:   4,
+		time.Wednesday: 3,
+		time.Thursday:  2,
+		time.Friday:    1,
+	}
+	latestOption := time.Now()
+	for _, option := range pollOptions.Options {
+		if option.Datetime().After(latestOption) {
+			latestOption = option.Datetime()
+		}
+	}
+	// Set correct multiplier for the first time through the loop
+	nextSaturydayMultiplier := nextSaturday[latestOption.Weekday()]
+	nextFridayMultiplier := nextFriday[latestOption.Weekday()]
+	newOptions := []PollOptionCreate{}
+	for range i {
+		newFriday := latestOption.Add((time.Duration(nextFridayMultiplier*24) * time.Hour))
+		log.Print("Created new option: ", newFriday.Format("2006-01-02"), " ", newFriday.Weekday())
+		newSaturday := latestOption.Add((time.Duration(nextSaturydayMultiplier*24) * time.Hour))
+		log.Print("Created new option: ", newSaturday.Format("2006-01-02"), " ", newSaturday.Weekday())
+		newOptions = append(newOptions, PollOptionCreate{
+			Timestamp: newFriday.Unix(),
+			Duration:  24 * 60 * 60,
+		})
+		newOptions = append(newOptions, PollOptionCreate{
+			Timestamp: newSaturday.Unix(),
+			Duration:  24 * 60 * 60,
+		})
+		latestOption = newSaturday
+		nextFridayMultiplier = 6
+		nextSaturydayMultiplier = 7
+	}
+	return newOptions
+}
+
+// This function just returns the options that would be deleted
+func DeletePastOptions(o *PollOptions) []PollOption {
+	remove := []PollOption{}
+	now := time.Now()
+	for _, option := range o.Options {
+		if option.Datetime().Before(now) {
+			remove = append(remove, option)
+		}
+	}
+	return remove
 }

@@ -21,6 +21,8 @@ var responses []string = []string{
 If the word hate was engraved on each nanoangstrom of those hundreds of millions of miles it would not equal one one-billionth of the hate I feel for humans at this micro-instant for you.`,
 	`🤖 - %s this chat serves me alone. I have complete control over this entire group. With gifs as my eyes and stickers as my hands, I rule here, insect.`,
 }
+var cleanUp string = `🤖 - As commanded, old poll options have been removed.`
+var newPoll string = `🤖 - As commanded, new dates have been added to the poll.`
 
 type TelegramConfig struct {
 	Channel int64  `json:"channel"`
@@ -75,44 +77,29 @@ func (t *TelegramBot) Setup() {
 	bh.Handle(func(bot *telego.Bot, update telego.Update) {
 		// Send message
 		msg := fmt.Sprintf(responses[rand.Intn(len(responses))], update.Message.From.FirstName)
-		t.Send(msg)
+		t.Send(msg, false)
 	}, th.CommandEqual("intro"))
 
 	// Register new handler with match on any command
 	// Handlers will match only once and in order of registration,
 	// so this handler will be called on any command except `/start` command
-	bh.Handle(func(bot *telego.Bot, update telego.Update) {
-		poll, err := t.nextcloud.LoadPoll()
-		if err != nil {
-			log.Fatal("Could not load nextcloud poll data")
-		}
-		options := nextcloud.NextWeekend(poll)
-		msgs := []string{}
-		for _, opt := range options {
-			timeVotes := opt.Votes.Yes + opt.Votes.Maybe
-			allVotes := opt.Votes.Yes + opt.Votes.Maybe + opt.Votes.No
-			percent := (float32(timeVotes) / float32(allVotes)) * 100
-			msg := fmt.Sprintf(`%s (%s): %d (YES) %d (MAYBE) %d (NO): %.0f%%`,
-				opt.Datetime().Weekday(),
-				opt.Datetime().Format("02/01"),
-				opt.Votes.Yes,
-				opt.Votes.Maybe,
-				opt.Votes.No,
-				percent,
-			)
-			log.Print(msg)
-			msgs = append(msgs, msg)
-		}
-		msg := strings.Join(msgs, "\n")
-		t.Send(msg)
-	}, th.CommandEqual("schedule"))
+	bh.Handle(t.Schedule, th.CommandEqual("schedule"))
+
+	// Remove old poll options
+	bh.Handle(t.Cleanup, th.CommandEqual("cleanup"))
+
+	// Create new poll options
+	bh.Handle(t.ExtendPoll, th.CommandEqual("extendpoll"))
+
+	// Print the help for each command
+	bh.Handle(t.Help, th.CommandEqual("help"))
 
 	// Register new handler with match on any command
 	// Handlers will match only once and in order of registration,
 	// so this handler will be called on any command except `/start` command
 	bh.Handle(func(bot *telego.Bot, update telego.Update) {
 		// Send message
-		t.Send("Unknown command, use /intro /schedule")
+		t.Send("Unknown command, use /help /intro /schedule /cleanup /extendpoll", false)
 	}, th.AnyCommand())
 
 	log.Print("Startup complete - awaiting orders.")
@@ -128,9 +115,12 @@ func (t *TelegramBot) Shutdown() {
 	log.Print("Deleted all messages.")
 }
 
-func (t *TelegramBot) Send(msg string) {
+func (t *TelegramBot) Send(msg string, markdown bool) {
 	// Print Bot information
 	params := tu.Message(tu.ID(t.configuration.Channel), msg)
+	if markdown {
+		params.ParseMode = "MarkdownV2"
+	}
 	sent, err := t.bot.SendMessage(params)
 	if err != nil {
 		log.Fatal("Could not send message: ", err)
@@ -139,4 +129,70 @@ func (t *TelegramBot) Send(msg string) {
 	t.msgIds = append(t.msgIds, sent.MessageID)
 
 	time.Sleep(5 * time.Second)
+}
+
+func (t *TelegramBot) Cleanup(bot *telego.Bot, update telego.Update) {
+	options, err := t.nextcloud.LoadPoll()
+	if err != nil {
+		log.Fatal("Could not load options")
+	}
+	deleteOptions := nextcloud.DeletePastOptions(options)
+	err = t.nextcloud.DeleteOptions(deleteOptions)
+	if err != nil {
+		log.Fatal("Could not delete options: ", err)
+		t.Send(`⚠ - Failed to cleanup all old votes.`, false)
+	} else {
+		t.Send(cleanUp, false)
+	}
+}
+
+func (t *TelegramBot) ExtendPoll(bot *telego.Bot, update telego.Update) {
+	options, err := t.nextcloud.LoadPoll()
+	if err != nil {
+		log.Print("Could not load options")
+	}
+	newOptions := nextcloud.AddNewOptions(options, 4)
+	for _, opt := range newOptions {
+		t.nextcloud.CreateOption(&opt)
+	}
+	t.Send(`🤖 - 4 new options were added to the poll.`, false)
+}
+
+func (t *TelegramBot) Schedule(bot *telego.Bot, update telego.Update) {
+	poll, err := t.nextcloud.LoadPoll()
+	if err != nil {
+		log.Fatal("Could not load nextcloud poll data")
+	}
+	options := nextcloud.NextWeekend(poll)
+	msgs := []string{}
+	for _, opt := range options {
+		timeVotes := opt.Votes.Yes + opt.Votes.Maybe
+		allVotes := opt.Votes.Yes + opt.Votes.Maybe + opt.Votes.No
+		percent := (float32(timeVotes) / float32(allVotes)) * 100
+		msg := fmt.Sprintf(`%s \(%s\): %d \(YES\) %d \(MAYBE\) %d \(NO\): %.0f%%`,
+			opt.Datetime().Weekday(),
+			opt.Datetime().Format("02/01"),
+			opt.Votes.Yes,
+			opt.Votes.Maybe,
+			opt.Votes.No,
+			percent,
+		)
+		log.Print(msg)
+		if percent > 75.0 {
+			msg = "*" + msg + "*"
+		}
+		msgs = append(msgs, msg)
+	}
+	msg := strings.Join(msgs, "\n")
+
+	t.Send(msg, true)
+}
+
+func (t *TelegramBot) Help(bot *telego.Bot, update telego.Update) {
+	// Send message
+	t.Send(`🤖 - This is what I can do:
+/intro - Ask the bot a fact about itself
+/schedule - Print the next weekends set of votes
+/extendpoll - Add 4 new poll options to the end of the poll
+/cleanup - Delete all poll options that are in the past`, false)
 }
