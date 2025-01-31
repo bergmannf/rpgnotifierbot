@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/bergmannf/rpgreminder/nextcloud"
 	"github.com/bergmannf/rpgreminder/telegram"
@@ -70,7 +69,7 @@ func main() {
 			timeVotes := opt.Votes.Yes + opt.Votes.Maybe
 			allVotes := opt.Votes.Yes + opt.Votes.Maybe + opt.Votes.No
 			percent := (float32(timeVotes) / float32(allVotes)) * 100
-			msg := fmt.Sprintf(`%s (%s): %d (YES) %d (MAYBE) %d (NO): %.0f%%`,
+			msg := fmt.Sprintf(`%s \(%s\): %d \(YES\) %d \(MAYBE\) %d \(NO\): %.0f%%`,
 				opt.Datetime().Weekday(),
 				opt.Datetime().Format("02/01"),
 				opt.Votes.Yes,
@@ -78,10 +77,23 @@ func main() {
 				opt.Votes.No,
 				percent,
 			)
+			if percent > 75.0 {
+				msg = "*" + msg + "*"
+			}
 			log.Print(msg)
 			msgs = append(msgs, msg)
 		}
-		bot.Send(strings.Join(msgs, "\n"))
+		deletionOptions := nextcloud.DeletePastOptions(opts)
+		for _, opt := range deletionOptions {
+			log.Print("Would delete options: ", opt)
+			// nextcloudClient.DeleteOption(&opt)
+		}
+		newOptions := nextcloud.AddNewOptions(opts, 2)
+		for _, opt := range newOptions {
+			log.Print("New options: ", opt)
+			// nextcloudClient.CreateOption(&opt)
+		}
+		// bot.Send(strings.Join(msgs, "\n"))
 	} else {
 		bot.Setup()
 	}

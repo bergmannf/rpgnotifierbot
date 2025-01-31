@@ -21,6 +21,8 @@ var responses []string = []string{
 If the word hate was engraved on each nanoangstrom of those hundreds of millions of miles it would not equal one one-billionth of the hate I feel for humans at this micro-instant for you.`,
 	`🤖 - %s this chat serves me alone. I have complete control over this entire group. With gifs as my eyes and stickers as my hands, I rule here, insect.`,
 }
+var cleanUp string = `🤖 - As commanded, old poll options have been removed.`
+var newPoll string = `🤖 - As commanded, new dates have been added to the poll.`
 
 type TelegramConfig struct {
 	Channel int64  `json:"channel"`
@@ -107,12 +109,47 @@ func (t *TelegramBot) Setup() {
 		t.Send(msg)
 	}, th.CommandEqual("schedule"))
 
+	// Remove old poll options
+	bh.Handle(func(bot *telego.Bot, update telego.Update) {
+		options, err := t.nextcloud.LoadPoll()
+		if err != nil {
+			log.Fatal("Could not load options")
+		}
+		deleteOptions := nextcloud.DeletePastOptions(options)
+		err = t.nextcloud.DeleteOptions(deleteOptions)
+		if err != nil {
+			log.Fatal("Could not delete options: ", err)
+			t.Send("⚠ - Failed to cleanup all old votes.")
+		} else {
+			t.Send(cleanUp)
+		}
+	}, th.CommandEqual("/cleanup"))
+
+	// Create new poll options
+	bh.Handle(func(bot *telego.Bot, update telego.Update) {
+		options, err := t.nextcloud.LoadPoll()
+		if err != nil {
+			log.Print("Could not load options")
+		}
+		_ = nextcloud.AddNewOptions(options, 4)
+	}, th.CommandEqual("/extendpoll"))
+
+	// Print the help for each command
+	bh.Handle(func(bot *telego.Bot, update telego.Update) {
+		// Send message
+		t.Send(`🤖 - This is what I can do:
+/intro - Ask the bot a fact about itself
+/schedule - Print the next weekends set of votes
+/extendpoll - Add new poll options (fills in for a total of 10 options)
+/cleanup - Delete all poll options that are in the past`)
+	}, th.CommandEqual("/help"))
+
 	// Register new handler with match on any command
 	// Handlers will match only once and in order of registration,
 	// so this handler will be called on any command except `/start` command
 	bh.Handle(func(bot *telego.Bot, update telego.Update) {
 		// Send message
-		t.Send("Unknown command, use /intro /schedule")
+		t.Send("Unknown command, use /help /intro /schedule /cleanup /extendpoll")
 	}, th.AnyCommand())
 
 	log.Print("Startup complete - awaiting orders.")
@@ -131,6 +168,7 @@ func (t *TelegramBot) Shutdown() {
 func (t *TelegramBot) Send(msg string) {
 	// Print Bot information
 	params := tu.Message(tu.ID(t.configuration.Channel), msg)
+	params.ParseMode = "MarkdownV2"
 	sent, err := t.bot.SendMessage(params)
 	if err != nil {
 		log.Fatal("Could not send message: ", err)
