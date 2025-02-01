@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bergmannf/rpgreminder/nextcloud"
@@ -30,6 +31,7 @@ type TelegramConfig struct {
 }
 
 type TelegramBot struct {
+	lock          sync.Mutex
 	bot           *telego.Bot
 	configuration *TelegramConfig
 	msgIds        []int
@@ -51,7 +53,7 @@ func NewBot(config *TelegramConfig, nextcloud *nextcloud.Nextcloud) (*TelegramBo
 		return nil, err
 	}
 
-	return &TelegramBot{bot, config, []int{}, nextcloud}, nil
+	return &TelegramBot{bot: bot, configuration: config, msgIds: []int{}, nextcloud: nextcloud}, nil
 }
 
 func (t *TelegramBot) Setup() {
@@ -91,6 +93,9 @@ func (t *TelegramBot) Setup() {
 	// Create new poll options
 	bh.Handle(t.ExtendPoll, th.CommandEqual("extendpoll"))
 
+	// Delete messages sent to the chat
+	bh.Handle(t.DeleteMessages, th.CommandEqual("deletemessages"))
+
 	// Print the help for each command
 	bh.Handle(t.Help, th.CommandEqual("help"))
 
@@ -108,6 +113,8 @@ func (t *TelegramBot) Setup() {
 }
 
 func (t *TelegramBot) Shutdown() {
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	for _, msgId := range t.msgIds {
 		log.Print("Deleting message: ", msgId)
 		t.bot.DeleteMessage(tu.Delete(tu.ID(t.configuration.Channel), msgId))
@@ -126,6 +133,8 @@ func (t *TelegramBot) Send(msg string, markdown bool) {
 		log.Fatal("Could not send message: ", err)
 	}
 	log.Print("Send message with ID: ", sent.MessageID)
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	t.msgIds = append(t.msgIds, sent.MessageID)
 
 	time.Sleep(5 * time.Second)
@@ -188,11 +197,23 @@ func (t *TelegramBot) Schedule(bot *telego.Bot, update telego.Update) {
 	t.Send(msg, true)
 }
 
+func (t *TelegramBot) DeleteMessages(bot *telego.Bot, update telego.Update) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	for _, msgId := range t.msgIds {
+		log.Print("Deleting message: ", msgId)
+		t.bot.DeleteMessage(tu.Delete(tu.ID(t.configuration.Channel), msgId))
+	}
+	t.msgIds = []int{}
+	log.Print("Deleted all messages.")
+}
+
 func (t *TelegramBot) Help(bot *telego.Bot, update telego.Update) {
 	// Send message
 	t.Send(`🤖 - This is what I can do:
 /intro - Ask the bot a fact about itself
 /schedule - Print the next weekends set of votes
+/deletemessage - Delete all messages that were send to the chat
 /extendpoll - Add 4 new poll options to the end of the poll
 /cleanup - Delete all poll options that are in the past`, false)
 }
