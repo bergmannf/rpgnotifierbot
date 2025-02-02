@@ -1,0 +1,12 @@
+{
+    "telegram": {
+        "channel": 1,
+        "token": "bottoken"
+    },
+    "nextcloud": {
+        "server": "https://mynextcloud.com",
+        "username": "admin",
+        "token": "token",
+        "pollid": 1
+    }
+}

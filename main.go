@@ -43,8 +43,9 @@ func loadConfiguration(path string) (*Config, error) {
 
 func main() {
 	batchMode := flag.Bool("b", false, "Run the bot in batch mode instead of interactive")
+	configFile := flag.String("c", "/etc/rpgreminder/config.json", "Configuration file for the bot")
 	flag.Parse()
-	config, err := loadConfiguration("./testconfig.json")
+	config, err := loadConfiguration(*configFile)
 	if err != nil {
 		fmt.Println("Could not load configuration: ", err)
 	}

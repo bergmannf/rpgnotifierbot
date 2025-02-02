@@ -1,0 +1,6 @@
+[Unit]
+Description=RPG Reminder Telegram Bot
+Requires=multi-user.target
+
+[Service]
+ExecStart=/opt/rpgreminder -c /opt/rpgreminder.json
