@@ -44,10 +44,12 @@ func loadConfiguration(path string) (*Config, error) {
 func main() {
 	batchMode := flag.Bool("b", false, "Run the bot in batch mode instead of interactive")
 	configFile := flag.String("c", "/etc/rpgreminder/config.json", "Configuration file for the bot")
+	pollId := flag.Int("p", 1, "PollID to use for batch mode commands")
 	flag.Parse()
 	config, err := loadConfiguration(*configFile)
 	if err != nil {
 		fmt.Println("Could not load configuration: ", err)
+		os.Exit(1)
 	}
 
 	// NEXTCLOUD SETUP
@@ -60,7 +62,7 @@ func main() {
 		return
 	}
 	if *batchMode {
-		opts, err := nextcloudClient.LoadPoll()
+		opts, err := nextcloudClient.LoadPoll(*pollId)
 		if err != nil {
 			return
 		}

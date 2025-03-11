@@ -26,16 +26,26 @@ If the word hate was engraved on each nanoangstrom of those hundreds of millions
 var cleanUp string = `🤖 - As commanded, old poll options have been removed.`
 var newPoll string = `🤖 - As commanded, new dates have been added to the poll.`
 
+type SentMessage struct {
+	messageId int
+	channelId int64
+}
+
+type ChannelPollMapping struct {
+	ChannelId int64 `json:"id"`
+	PollId    int   `json:"pollid"`
+}
+
 type TelegramConfig struct {
-	Channel int64  `json:"channel"`
-	Token   string `json:"token"`
+	ChannelsToPolls []ChannelPollMapping `json:"channels"`
+	Token           string               `json:"token"`
 }
 
 type TelegramBot struct {
 	lock          sync.Mutex
 	bot           *telego.Bot
 	configuration *TelegramConfig
-	msgIds        []int
+	sentMessages  []SentMessage
 	nextcloud     *nextcloud.Nextcloud
 }
 
@@ -54,7 +64,7 @@ func NewBot(config *TelegramConfig, nextcloud *nextcloud.Nextcloud) (*TelegramBo
 		return nil, err
 	}
 
-	return &TelegramBot{bot: bot, configuration: config, msgIds: []int{}, nextcloud: nextcloud}, nil
+	return &TelegramBot{bot: bot, configuration: config, sentMessages: []SentMessage{}, nextcloud: nextcloud}, nil
 }
 
 func (t *TelegramBot) Setup() {
@@ -77,7 +87,7 @@ func (t *TelegramBot) Setup() {
 	bh.Handle(func(bot *th.Context, update telego.Update) error {
 		// Send message
 		msg := fmt.Sprintf(responses[rand.Intn(len(responses))], update.Message.From.FirstName)
-		t.Send(msg, false)
+		t.Send(update.Message.Chat.ID, msg, false)
 		return nil
 	}, th.CommandEqual("intro"))
 
@@ -93,7 +103,7 @@ func (t *TelegramBot) Setup() {
 	bh.Handle(t.ExtendPoll, th.CommandEqual("extendpoll"))
 
 	// Delete messages sent to the chat
-	bh.Handle(t.DeleteMessages, th.CommandEqual("deletemessages"))
+	bh.Handle(t.DeleteMessagesHandle, th.CommandEqual("deletemessages"))
 
 	// Print the help for each command
 	bh.Handle(t.Help, th.CommandEqual("help"))
@@ -103,7 +113,7 @@ func (t *TelegramBot) Setup() {
 	// so this handler will be called on any command except `/start` command
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
 		// Send message
-		t.Send("Unknown command, use /help /intro /schedule /cleanup /extendpoll", false)
+		t.Send(update.Message.Chat.ID, "Unknown command, use /help /intro /schedule /cleanup /extendpoll", false)
 		return nil
 	}, th.AnyCommand())
 
@@ -115,16 +125,15 @@ func (t *TelegramBot) Setup() {
 func (t *TelegramBot) Shutdown() {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	for _, msgId := range t.msgIds {
-		log.Print("Deleting message: ", msgId)
-		t.bot.DeleteMessage(context.Background(), tu.Delete(tu.ID(t.configuration.Channel), msgId))
+	for _, msg := range t.sentMessages {
+		log.Print("Deleting message: ", msg.messageId)
+		t.bot.DeleteMessage(context.Background(), tu.Delete(tu.ID(msg.channelId), msg.messageId))
 	}
 	log.Print("Deleted all messages.")
 }
 
-func (t *TelegramBot) Send(msg string, markdown bool) {
-	// Print Bot information
-	params := tu.Message(tu.ID(t.configuration.Channel), msg)
+func (t *TelegramBot) Send(channel int64, msg string, markdown bool) {
+	params := tu.Message(tu.ID(channel), msg)
 	if markdown {
 		params.ParseMode = "MarkdownV2"
 	}
@@ -135,13 +144,18 @@ func (t *TelegramBot) Send(msg string, markdown bool) {
 	log.Print("Send message with ID: ", sent.MessageID)
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	t.msgIds = append(t.msgIds, sent.MessageID)
+	t.sentMessages = append(t.sentMessages, SentMessage{
+		messageId: sent.MessageID,
+		channelId: channel,
+	})
 
 	time.Sleep(5 * time.Second)
 }
 
 func (t *TelegramBot) Cleanup(ctx *th.Context, update telego.Update) error {
-	options, err := t.nextcloud.LoadPoll()
+	chatId := update.Message.Chat.ID
+	pollId := t.FindPollId(chatId)
+	options, err := t.nextcloud.LoadPoll(pollId)
 	if err != nil {
 		log.Fatal("Could not load options")
 	}
@@ -149,28 +163,32 @@ func (t *TelegramBot) Cleanup(ctx *th.Context, update telego.Update) error {
 	err = t.nextcloud.DeleteOptions(deleteOptions)
 	if err != nil {
 		log.Fatal("Could not delete options: ", err)
-		t.Send(`⚠ - Failed to cleanup all old votes.`, false)
+		t.Send(chatId, `⚠ - Failed to cleanup all old votes.`, false)
 	} else {
-		t.Send(cleanUp, false)
+		t.Send(chatId, cleanUp, false)
 	}
 	return nil
 }
 
 func (t *TelegramBot) ExtendPoll(ctx *th.Context, update telego.Update) error {
-	options, err := t.nextcloud.LoadPoll()
+	chatId := update.Message.Chat.ID
+	pollId := t.FindPollId(chatId)
+	options, err := t.nextcloud.LoadPoll(pollId)
 	if err != nil {
 		log.Print("Could not load options")
 	}
 	newOptions := nextcloud.AddNewOptions(options, 4)
 	for _, opt := range newOptions {
-		t.nextcloud.CreateOption(&opt)
+		t.nextcloud.CreateOption(pollId, &opt)
 	}
-	t.Send(`🤖 - 4 new options were added to the poll.`, false)
+	t.Send(update.Message.Chat.ID, `🤖 - 4 new options were added to the poll.`, false)
 	return nil
 }
 
 func (t *TelegramBot) Schedule(ctx *th.Context, update telego.Update) error {
-	poll, err := t.nextcloud.LoadPoll()
+	chatId := update.Message.Chat.ID
+	pollId := t.FindPollId(chatId)
+	poll, err := t.nextcloud.LoadPoll(pollId)
 	if err != nil {
 		log.Fatal("Could not load nextcloud poll data")
 	}
@@ -196,29 +214,47 @@ func (t *TelegramBot) Schedule(ctx *th.Context, update telego.Update) error {
 	}
 	msg := strings.Join(msgs, "\n")
 
-	t.Send(msg, true)
+	t.Send(update.Message.Chat.ID, msg, true)
 	return nil
 }
 
-func (t *TelegramBot) DeleteMessages(ctx *th.Context, update telego.Update) error {
+func (t *TelegramBot) DeleteMessagesHandle(ctx *th.Context, update telego.Update) error {
+	t.DeleteMessages(update.Message.Chat.ID)
+	log.Print("Deleted all messages.")
+	return nil
+}
+
+func (t *TelegramBot) DeleteMessages(channelId int64) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	for _, msgId := range t.msgIds {
-		log.Print("Deleting message: ", msgId)
-		t.bot.DeleteMessage(context.Background(), tu.Delete(tu.ID(t.configuration.Channel), msgId))
+	for _, msg := range t.sentMessages {
+		if msg.channelId != channelId {
+			log.Print("Skipping message because it is in another channel: ", msg.messageId)
+			continue
+		}
+		log.Print("Deleting message: ", msg.messageId)
+		t.bot.DeleteMessage(context.Background(), tu.Delete(tu.ID(msg.channelId), msg.messageId))
 	}
-	t.msgIds = []int{}
-	log.Print("Deleted all messages.")
+	t.sentMessages = []SentMessage{}
 	return nil
 }
 
 func (t *TelegramBot) Help(ctx *th.Context, update telego.Update) error {
 	// Send message
-	t.Send(`🤖 - This is what I can do:
+	t.Send(update.Message.Chat.ID, `🤖 - This is what I can do:
 /intro - Ask the bot a fact about itself
 /schedule - Print the next weekends set of votes
 /deletemessage - Delete all messages that were send to the chat
 /extendpoll - Add 4 new poll options to the end of the poll
 /cleanup - Delete all poll options that are in the past`, false)
 	return nil
+}
+
+func (t *TelegramBot) FindPollId(channelId int64) int {
+	for _, mapping := range t.configuration.ChannelsToPolls {
+		if mapping.ChannelId == channelId {
+			return mapping.PollId
+		}
+	}
+	return 0
 }

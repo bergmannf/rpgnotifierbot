@@ -15,7 +15,6 @@ type NextcloudConfig struct {
 	Server   string `json:"server"`
 	Username string `json:"username"`
 	Token    string `json:"token"`
-	PollId   int    `json:"pollid"`
 }
 
 type PollVote struct {
@@ -85,16 +84,16 @@ func FromConfig(opts NextcloudConfig) Nextcloud {
 	return Nextcloud{Options: opts}
 }
 
-func (n *Nextcloud) Url(endpoint string) string {
-	return fmt.Sprintf("%s/%s/%d/%s", n.Options.Server, "index.php/apps/polls/api/v1.0/poll", n.Options.PollId, endpoint)
+func (n *Nextcloud) Url(endpoint string, pollid int) string {
+	return fmt.Sprintf("%s/%s/%d/%s", n.Options.Server, "index.php/apps/polls/api/v1.0/poll", pollid, endpoint)
 }
 
-func (n *Nextcloud) VotesUrl() string {
-	return n.Url("votes")
+func (n *Nextcloud) VotesUrl(pollid int) string {
+	return n.Url("votes", pollid)
 }
 
-func (n *Nextcloud) PollsUrl() string {
-	return n.Url("options")
+func (n *Nextcloud) PollsUrl(pollid int) string {
+	return n.Url("options", pollid)
 }
 
 func (n *Nextcloud) Request(url string, requestType string, requestBody []byte) ([]byte, error) {
@@ -119,8 +118,8 @@ func (n *Nextcloud) Get(url string) ([]byte, error) {
 	return n.Request(url, "GET", nil)
 }
 
-func (n *Nextcloud) Users() ([]PollUser, error) {
-	body, err := n.Get(n.VotesUrl())
+func (n *Nextcloud) Users(pollid int) ([]PollUser, error) {
+	body, err := n.Get(n.VotesUrl(pollid))
 	var votes PollVotes
 	err = json.Unmarshal(body, &votes)
 	if err != nil {
@@ -145,13 +144,13 @@ func (n *Nextcloud) DeleteOption(o *PollOption) error {
 	return err
 }
 
-func (n *Nextcloud) CreateOption(o *PollOptionCreate) error {
+func (n *Nextcloud) CreateOption(pollid int, o *PollOptionCreate) error {
 	log.Print("Creating new option: ", o)
 	byte, err := json.Marshal(o)
 	if err != nil {
 		log.Fatal("Could not marshal new option: ", err)
 	}
-	url := n.Url("option")
+	url := n.Url("option", pollid)
 	_, err = n.Request(url, "POST", byte)
 	if err != nil {
 		log.Fatal("Failed to post new option: ", err)
@@ -169,12 +168,12 @@ func (n *Nextcloud) DeleteOptions(options []PollOption) error {
 	return nil
 }
 
-func (n *Nextcloud) LoadPoll() (*PollOptions, error) {
-	users, err := n.Users()
+func (n *Nextcloud) LoadPoll(pollid int) (*PollOptions, error) {
+	users, err := n.Users(pollid)
 	if err != nil {
 		log.Fatal("Failed to load users")
 	}
-	body, err := n.Get(n.PollsUrl())
+	body, err := n.Get(n.PollsUrl(pollid))
 	if err != nil {
 		log.Fatal("Failed to load options")
 	}
