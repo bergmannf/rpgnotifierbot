@@ -212,6 +212,9 @@ func (t *TelegramBot) Schedule(ctx *th.Context, update telego.Update) error {
 		}
 		msgs = append(msgs, msg)
 	}
+	if len(msgs) == 0 {
+		msgs = []string{"No votes cast"}
+	}
 	msg := strings.Join(msgs, "\n")
 
 	t.Send(update.Message.Chat.ID, msg, true)
