@@ -231,6 +231,13 @@ func AddNewOptions(pollOptions *PollOptions, i int) []PollOptionCreate {
 			latestOption = option.Datetime()
 		}
 	}
+	// Reset to midnight - ensures full-day poll if no option was active.
+	latestOption = time.Date(latestOption.Year(),
+		latestOption.Month(),
+		latestOption.Day(),
+		0, 0, 0,
+		latestOption.Nanosecond(),
+		latestOption.Location())
 	// Set correct multiplier for the first time through the loop
 	nextSaturydayMultiplier := nextSaturday[latestOption.Weekday()]
 	nextFridayMultiplier := nextFriday[latestOption.Weekday()]
