@@ -193,29 +193,28 @@ func (t *TelegramBot) Schedule(ctx *th.Context, update telego.Update) error {
 		log.Fatal("Could not load nextcloud poll data")
 	}
 	options := nextcloud.NextWeekend(poll)
-	msgs := []string{}
+	formatStringHeader := "| %-10s | %-5s | %5s | %5s | %5s | %8s |"
+	formatStringOption := "| %-10s | %-5s | %5d | %5d | %5d | %6.2f %% |"
+	msgs := []string{fmt.Sprintf(formatStringHeader, "Weekday", "Date", "Yes", "No", "Maybe", "Total")}
 	for _, opt := range options {
 		timeVotes := opt.Votes.Yes + opt.Votes.Maybe
 		allVotes := opt.Votes.Yes + opt.Votes.Maybe + opt.Votes.No
 		percent := (float32(timeVotes) / float32(allVotes)) * 100
-		msg := fmt.Sprintf(`%s \(%s\): %d \(YES\) %d \(MAYBE\) %d \(NO\): %.0f%%`,
+		msg := fmt.Sprintf(formatStringOption,
 			opt.Datetime().Weekday(),
 			opt.Datetime().Format("02/01"),
 			opt.Votes.Yes,
-			opt.Votes.Maybe,
 			opt.Votes.No,
+			opt.Votes.Maybe,
 			percent,
 		)
 		log.Print(msg)
-		if percent > 75.0 {
-			msg = "*" + msg + "*"
-		}
 		msgs = append(msgs, msg)
 	}
 	if len(msgs) == 0 {
 		msgs = []string{"No votes cast"}
 	}
-	msg := strings.Join(msgs, "\n")
+	msg := fmt.Sprintf("```%s```", strings.Join(msgs, "\n"))
 
 	t.Send(update.Message.Chat.ID, msg, true)
 	return nil
