@@ -1,0 +1,9 @@
+{
+    "name": "rpg notifier bot devcontainer",
+    "remoteEnv": {
+        "PATH": "${containerEnv:PATH}:/usr/local/go/bin:/go/bin"
+    },
+    "build": {
+        "dockerfile": "Dockerfile"
+    }
+}
