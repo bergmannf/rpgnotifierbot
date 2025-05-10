@@ -2,6 +2,7 @@
     "telegram": {
         "channel": 1,
         "token": "bottoken"
+        "database_path": "./messages.db"
     },
     "nextcloud": {
         "server": "https://mynextcloud.com",

@@ -2,7 +2,10 @@ module github.com/bergmannf/rpgreminder
 
 go 1.23.5
 
-require github.com/mymmrac/telego v1.0.2
+require (
+	github.com/mattn/go-sqlite3 v1.14.28
+	github.com/mymmrac/telego v1.0.2
+)
 
 require (
 	github.com/andybalholm/brotli v1.1.1 // indirect

@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
-	"time"
+	// "time"
 
 	"github.com/bergmannf/rpgreminder/nextcloud"
 	"github.com/mymmrac/telego"
@@ -26,11 +26,6 @@ If the word hate was engraved on each nanoangstrom of those hundreds of millions
 var cleanUp string = `🤖 - As commanded, old poll options have been removed.`
 var newPoll string = `🤖 - As commanded, new dates have been added to the poll.`
 
-type SentMessage struct {
-	messageId int
-	channelId int64
-}
-
 type ChannelPollMapping struct {
 	ChannelId int64 `json:"id"`
 	PollId    int   `json:"pollid"`
@@ -39,14 +34,15 @@ type ChannelPollMapping struct {
 type TelegramConfig struct {
 	ChannelsToPolls []ChannelPollMapping `json:"channels"`
 	Token           string               `json:"token"`
+	Database        string               `json:"database_path"`
 }
 
 type TelegramBot struct {
 	lock          sync.Mutex
 	bot           *telego.Bot
 	configuration *TelegramConfig
-	sentMessages  []SentMessage
 	nextcloud     *nextcloud.Nextcloud
+	db            *MessageDB
 }
 
 func NewBot(config *TelegramConfig, nextcloud *nextcloud.Nextcloud) (*TelegramBot, error) {
@@ -60,11 +56,17 @@ func NewBot(config *TelegramConfig, nextcloud *nextcloud.Nextcloud) (*TelegramBo
 	// Call method getMe (https://core.telegram.org/bots/api#getme)
 	_, err = bot.GetMe(context.Background())
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Fatal("Could not start bot: ", err)
 		return nil, err
 	}
 
-	return &TelegramBot{bot: bot, configuration: config, sentMessages: []SentMessage{}, nextcloud: nextcloud}, nil
+	db, err := OpenDatabase(config.Database)
+	if err != nil {
+		log.Fatal("Could not open database path at: ", config.Database)
+		return nil, err
+	}
+
+	return &TelegramBot{bot: bot, configuration: config, nextcloud: nextcloud, db: db}, nil
 }
 
 func (t *TelegramBot) Setup() {
@@ -108,6 +110,9 @@ func (t *TelegramBot) Setup() {
 	// Print the help for each command
 	bh.Handle(t.Help, th.CommandEqual("help"))
 
+	// Store any non-command message so it can be summarized later.
+	bh.Handle(t.StoreNonCommand, th.AnyMessage())
+
 	// Register new handler with match on any command
 	// Handlers will match only once and in order of registration,
 	// so this handler will be called on any command except `/start` command
@@ -123,13 +128,24 @@ func (t *TelegramBot) Setup() {
 }
 
 func (t *TelegramBot) Shutdown() {
+	// TODO: The cleanup should not be needed if messages are no longer only in memory.
+}
+
+func (t *TelegramBot) storeMessage(msg *telego.Message) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	for _, msg := range t.sentMessages {
-		log.Print("Deleting message: ", msg.messageId)
-		t.bot.DeleteMessage(context.Background(), tu.Delete(tu.ID(msg.channelId), msg.messageId))
+	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, msg.Date, msg.From.Username, msg.Text, "sent")
+	if err != nil {
+		log.Fatal("Error when inserting into database.")
 	}
-	log.Print("Deleted all messages.")
+	lid, _ := res.LastInsertId()
+	log.Print("Sent message inserted into database: ", lid)
+	return nil
+}
+
+func (t *TelegramBot) StoreNonCommand(ctx *th.Context, update telego.Update) error {
+	log.Print("Received non-command message: ", update.Message.Text)
+	return t.storeMessage(update.Message)
 }
 
 func (t *TelegramBot) Send(channel int64, msg string, markdown bool) {
@@ -142,14 +158,7 @@ func (t *TelegramBot) Send(channel int64, msg string, markdown bool) {
 		log.Fatal("Could not send message: ", err)
 	}
 	log.Print("Send message with ID: ", sent.MessageID)
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	t.sentMessages = append(t.sentMessages, SentMessage{
-		messageId: sent.MessageID,
-		channelId: channel,
-	})
-
-	time.Sleep(5 * time.Second)
+	t.storeMessage(sent)
 }
 
 func (t *TelegramBot) Cleanup(ctx *th.Context, update telego.Update) error {
@@ -226,18 +235,25 @@ func (t *TelegramBot) DeleteMessagesHandle(ctx *th.Context, update telego.Update
 	return nil
 }
 
+// Remove all messages that were send to the given ChannelID
 func (t *TelegramBot) DeleteMessages(channelId int64) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	for _, msg := range t.sentMessages {
-		if msg.channelId != channelId {
-			log.Print("Skipping message because it is in another channel: ", msg.messageId)
+	rows, err := t.db.query.Query("SELECT * FROM messages WHERE channelId = ?", channelId)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var message DBMessage
+		err := rows.Scan(&message)
+		if err != nil {
+			log.Printf("Could not deserialize a DB message: %s", err.Error())
 			continue
 		}
-		log.Print("Deleting message: ", msg.messageId)
-		t.bot.DeleteMessage(context.Background(), tu.Delete(tu.ID(msg.channelId), msg.messageId))
+		t.bot.DeleteMessage(context.Background(), tu.Delete(tu.ID(*message.ChannelId), *message.MsgId))
+		log.Print("Deleted message: ", *message.MsgId)
 	}
-	t.sentMessages = []SentMessage{}
 	return nil
 }
 
