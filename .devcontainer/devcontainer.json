@@ -3,6 +3,7 @@
     "remoteEnv": {
         "PATH": "${containerEnv:PATH}:/usr/local/go/bin:/go/bin"
     },
+    "remoteUser": "root",
     "build": {
         "dockerfile": "Dockerfile"
     }
