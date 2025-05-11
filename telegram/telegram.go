@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
-	// "time"
+	"time"
 
 	"github.com/bergmannf/rpgreminder/nextcloud"
 	"github.com/mymmrac/telego"
@@ -134,7 +134,7 @@ func (t *TelegramBot) Shutdown() {
 func (t *TelegramBot) storeMessage(msg *telego.Message) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, msg.Date, msg.From.Username, msg.Text, "sent")
+	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, time.Unix(msg.Date, 0).UTC(), msg.From.Username, msg.Text, "sent")
 	if err != nil {
 		log.Fatal("Error when inserting into database.")
 	}

@@ -3,17 +3,19 @@ package telegram
 
 import (
 	"database/sql"
+	"time"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
 type DBMessage struct {
-	Id *int
-	MsgId *int
+	Id        *int
+	MsgId     *int
 	ChannelId *int64
-	Date *int64
-	User *string
-	Text *string
-	Type *string
+	Date      *time.Time
+	User      *string
+	Text      *string
+	Type      *string
 }
 
 const TABLE string = `CREATE TABLE IF NOT EXISTS messages (
@@ -23,7 +25,7 @@ channelId INTEGER NOT NULL,
 date DATETIME NOT NULL,
 user TEXT,
 text TEXT,
-type TEXT CHECK (type in ('sent', 'received') NOT NULL DEFAULT 'received')
+type TEXT CHECK (type in ('sent', 'received')) NOT NULL DEFAULT 'received'
 )`
 const INSERT string = `INSERT INTO messages VALUES(NULL, ?, ?, ?, ?, ?, ?)`
 const DELETE string = `DELETE FROM messages WHERE id = ?`
