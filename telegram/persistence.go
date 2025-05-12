@@ -8,6 +8,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type MessageType = string
+
 type DBMessage struct {
 	Id        *int
 	MsgId     *int
@@ -15,8 +17,11 @@ type DBMessage struct {
 	Date      *time.Time
 	User      *string
 	Text      *string
-	Type      *string
+	Type      *MessageType
 }
+
+const SENT MessageType = "sent"
+const RECEIVED MessageType = "received"
 
 const TABLE string = `CREATE TABLE IF NOT EXISTS messages (
 id INTEGER NOT NULL PRIMARY KEY,
@@ -29,15 +34,20 @@ type TEXT CHECK (type in ('sent', 'received')) NOT NULL DEFAULT 'received'
 )`
 const INSERT string = `INSERT INTO messages VALUES(NULL, ?, ?, ?, ?, ?, ?)`
 const DELETE string = `DELETE FROM messages WHERE id = ?`
-const QUERY string = `SELECT * FROM messages WHERE channelId = ?`
+const SENT_QUERY string = `SELECT * FROM messages WHERE type = 'sent' AND channelId = ?`
+const RECEIVED_QUERY string = `SELECT * FROM messages WHERE type = 'received' AND channelId = ?`
 
 type MessageDB struct {
-	connection            *sql.DB
-	insert, delete, query *sql.Stmt
+	connection                     *sql.DB
+	insert, delete, sent, received *sql.Stmt
 }
 
 func OpenDatabase(dbPath string) (*MessageDB, error) {
 	conn, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	_, err = conn.Exec(TABLE)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +59,11 @@ func OpenDatabase(dbPath string) (*MessageDB, error) {
 	if err != nil {
 		return nil, err
 	}
-	quer, err := conn.Prepare(QUERY)
+	sent, err := conn.Prepare(SENT_QUERY)
+	if err != nil {
+		return nil, err
+	}
+	received, err := conn.Prepare(RECEIVED_QUERY)
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +71,7 @@ func OpenDatabase(dbPath string) (*MessageDB, error) {
 		connection: conn,
 		insert:     ins,
 		delete:     del,
-		query:      quer,
+		sent:       sent,
+		received:   received,
 	}, nil
 }

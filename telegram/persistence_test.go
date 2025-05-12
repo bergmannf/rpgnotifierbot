@@ -40,7 +40,7 @@ func TestInsertMessage(t *testing.T) {
 	date := time.Unix(1625648400, 0).UTC()
 	user := "testuser"
 	text := "Test message"
-	msgType := "sent"
+	msgType := SENT
 
 	// Insert message
 	result, err := insertStmt.Exec(msgId, channelId, date, user, text, msgType)
@@ -109,7 +109,7 @@ func TestDeleteMessage(t *testing.T) {
 	date := int64(1625648400)
 	user := "testuser"
 	text := "Test message"
-	msgType := "sent"
+	msgType := SENT
 
 	result, err := insertStmt.Exec(msgId, channelId, date, user, text, msgType)
 	if err != nil {
@@ -159,7 +159,7 @@ func TestQueryMessages(t *testing.T) {
 		date      time.Time
 		user      string
 		text      string
-		msgType   string
+		msgType   MessageType
 	}{
 		{1, 1001, time.Unix(1625648400, 0).UTC(), "user1", "msg1", "sent"},
 		{2, 1001, time.Unix(1625648401, 0).UTC(), "user2", "msg2", "received"},
@@ -187,7 +187,7 @@ func TestQueryMessages(t *testing.T) {
 		date      time.Time
 		user      string
 		text      string
-		msgType   string
+		msgType   MessageType
 	}
 
 	for i, msg := range msgs[:2] {
@@ -198,7 +198,7 @@ func TestQueryMessages(t *testing.T) {
 			date      time.Time
 			user      string
 			text      string
-			msgType   string
+			msgType   MessageType
 		}{
 			i + 1, msg.msgId, msg.channelId, msg.date, msg.user, msg.text, msg.msgType,
 		})
@@ -211,7 +211,7 @@ func TestQueryMessages(t *testing.T) {
 		date      time.Time
 		user      string
 		text      string
-		msgType   string
+		msgType   MessageType
 	}
 
 	for rows.Next() {
@@ -221,7 +221,7 @@ func TestQueryMessages(t *testing.T) {
 		var date time.Time
 		var user string
 		var text string
-		var msgType string
+		var msgType MessageType
 
 		if err := rows.Scan(&id, &msgId, &channelId, &date, &user, &text, &msgType); err != nil {
 			t.Fatalf("Failed to scan row: %v", err)
@@ -234,7 +234,7 @@ func TestQueryMessages(t *testing.T) {
 			date      time.Time
 			user      string
 			text      string
-			msgType   string
+			msgType   MessageType
 		}{
 			id, msgId, channelId, date, user, text, msgType,
 		})

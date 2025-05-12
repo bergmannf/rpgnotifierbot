@@ -48,7 +48,7 @@ func main() {
 	flag.Parse()
 	config, err := loadConfiguration(*configFile)
 	if err != nil {
-		fmt.Println("Could not load configuration: ", err)
+		fmt.Println("Could not load configuration: ", *configFile, err.Error())
 		os.Exit(1)
 	}
 
