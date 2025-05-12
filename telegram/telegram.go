@@ -62,7 +62,7 @@ func NewBot(config *TelegramConfig, nextcloud *nextcloud.Nextcloud) (*TelegramBo
 
 	db, err := OpenDatabase(config.Database)
 	if err != nil {
-		log.Fatal("Could not open database path at: ", config.Database)
+		log.Fatal("Could not open database path at: ", config.Database, " - ", err)
 		return nil, err
 	}
 
@@ -131,21 +131,21 @@ func (t *TelegramBot) Shutdown() {
 	// TODO: The cleanup should not be needed if messages are no longer only in memory.
 }
 
-func (t *TelegramBot) storeMessage(msg *telego.Message) error {
+func (t *TelegramBot) storeMessage(msg *telego.Message, msgType MessageType) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, time.Unix(msg.Date, 0).UTC(), msg.From.Username, msg.Text, "sent")
+	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, time.Unix(msg.Date, 0).UTC(), msg.From.Username, msg.Text, msgType)
 	if err != nil {
 		log.Fatal("Error when inserting into database.")
 	}
 	lid, _ := res.LastInsertId()
-	log.Print("Sent message inserted into database: ", lid)
+	log.Print("Message inserted into database: ", lid)
 	return nil
 }
 
 func (t *TelegramBot) StoreNonCommand(ctx *th.Context, update telego.Update) error {
 	log.Print("Received non-command message: ", update.Message.Text)
-	return t.storeMessage(update.Message)
+	return t.storeMessage(update.Message, RECEIVED)
 }
 
 func (t *TelegramBot) Send(channel int64, msg string, markdown bool) {
@@ -158,7 +158,7 @@ func (t *TelegramBot) Send(channel int64, msg string, markdown bool) {
 		log.Fatal("Could not send message: ", err)
 	}
 	log.Print("Send message with ID: ", sent.MessageID)
-	t.storeMessage(sent)
+	t.storeMessage(sent, SENT)
 }
 
 func (t *TelegramBot) Cleanup(ctx *th.Context, update telego.Update) error {
@@ -223,36 +223,51 @@ func (t *TelegramBot) Schedule(ctx *th.Context, update telego.Update) error {
 	if len(msgs) == 0 {
 		msgs = []string{"No votes cast"}
 	}
-	msg := fmt.Sprintf("```%s```", strings.Join(msgs, "\n"))
+	msg := fmt.Sprintf("```text\n%s```", strings.Join(msgs, "\n"))
 
 	t.Send(update.Message.Chat.ID, msg, true)
 	return nil
 }
 
 func (t *TelegramBot) DeleteMessagesHandle(ctx *th.Context, update telego.Update) error {
-	t.DeleteMessages(update.Message.Chat.ID)
+	err := t.DeleteMessages(update.Message.Chat.ID)
+	if err != nil {
+		log.Print("Failed to delete messages: ", err)
+		return err
+	}
 	log.Print("Deleted all messages.")
 	return nil
 }
 
 // Remove all messages that were send to the given ChannelID
 func (t *TelegramBot) DeleteMessages(channelId int64) error {
+	log.Print("Deleting messages in channel: ", channelId)
+	deletedMessageIds := make([]int, 0)
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	rows, err := t.db.query.Query("SELECT * FROM messages WHERE channelId = ?", channelId)
+	rows, err := t.db.sent.Query(channelId)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var message DBMessage
-		err := rows.Scan(&message)
+		err := rows.Scan(&message.Id, &message.MsgId, &message.ChannelId, &message.Date, &message.User, &message.Text, &message.Type)
 		if err != nil {
 			log.Printf("Could not deserialize a DB message: %s", err.Error())
 			continue
 		}
-		t.bot.DeleteMessage(context.Background(), tu.Delete(tu.ID(*message.ChannelId), *message.MsgId))
-		log.Print("Deleted message: ", *message.MsgId)
+		err = t.bot.DeleteMessage(context.Background(), tu.Delete(tu.ID(*message.ChannelId), *message.MsgId))
+		if err != nil {
+			log.Print("Deleted message: ", *message.MsgId)
+			deletedMessageIds = append(deletedMessageIds, *message.Id)
+		}
+	}
+	for _, id := range deletedMessageIds {
+		_, err := t.db.delete.Exec(id)
+		if err != nil {
+			log.Print("Failed to clean up database: ", err)
+		}
 	}
 	return nil
 }
