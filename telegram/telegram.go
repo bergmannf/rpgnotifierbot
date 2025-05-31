@@ -134,7 +134,7 @@ func (t *TelegramBot) Shutdown() {
 func (t *TelegramBot) storeMessage(msg *telego.Message, msgType MessageType) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, time.Unix(msg.Date, 0).UTC(), msg.From.Username, msg.Text, msgType)
+	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, time.Unix(msg.Date, 0).UTC(), msg.SenderChat.Username, msg.Text, msgType)
 	if err != nil {
 		log.Fatal("Error when inserting into database.")
 	}
