@@ -138,13 +138,15 @@ func (t *TelegramBot) storeMessage(msg *telego.Message, msgType MessageType) err
 	if msg.SenderChat != nil {
 		log.Print("SenderChat is not nil: ", msg.SenderChat.Username)
 		username = msg.SenderChat.Username
+	} else if msg.ChatShared != nil {
+		log.Print("ChatShared is not nil: ", msg.ChatShared.Username)
+		username = msg.ChatShared.Username
+	} else if msg.From != nil {
+		log.Print("From is not nil: ", msg.From.Username)
+		username = msg.Chat.Username
 	} else {
-		if msg.ChatShared != nil {
-			log.Print("ChatShared is not nil: ", msg.ChatShared.Username)
-			username = msg.ChatShared.Username
-		} else {
-			username = msg.Chat.Username
-		}
+		log.Printf("Chat fields: %+v", msg.Chat)
+		username = msg.Chat.Username
 	}
 	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, time.Unix(msg.Date, 0).UTC(), username, msg.Text, msgType)
 	if err != nil {
