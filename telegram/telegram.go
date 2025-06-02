@@ -134,7 +134,19 @@ func (t *TelegramBot) Shutdown() {
 func (t *TelegramBot) storeMessage(msg *telego.Message, msgType MessageType) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, time.Unix(msg.Date, 0).UTC(), msg.SenderChat.Username, msg.Text, msgType)
+	var username string
+	if msg.SenderChat != nil {
+		log.Print("SenderChat is not nil: ", msg.SenderChat.Username)
+		username = msg.SenderChat.Username
+	} else {
+		if msg.ChatShared != nil {
+			log.Print("ChatShared is not nil: ", msg.ChatShared.Username)
+			username = msg.ChatShared.Username
+		} else {
+			username = msg.Chat.Username
+		}
+	}
+	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, time.Unix(msg.Date, 0).UTC(), username, msg.Text, msgType)
 	if err != nil {
 		log.Fatal("Error when inserting into database.")
 	}
