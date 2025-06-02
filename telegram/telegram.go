@@ -136,10 +136,11 @@ func (t *TelegramBot) storeMessage(msg *telego.Message, msgType MessageType) err
 	defer t.lock.Unlock()
 	var username string
 	if msg.From != nil {
-		username = msg.From.Username
-	} else {
-		log.Printf("Falling back to 'chat' field: %+v", msg.Chat)
-		username = msg.Chat.Username
+		if msg.From.Username != "" {
+			username = msg.From.Username
+		} else {
+			username = msg.From.FirstName + " " + msg.From.LastName
+		}
 	}
 	res, err := t.db.insert.Exec(msg.MessageID, msg.Chat.ID, time.Unix(msg.Date, 0).UTC(), username, msg.Text, msgType)
 	if err != nil {
